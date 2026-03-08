@@ -36,6 +36,6 @@ export const api = {
   // AI
   aiChat: (messages, context) => {
     const lastMsg = messages[messages.length - 1]?.content || ""
-    return request("/api/ai/chat", { method: "POST", body: JSON.stringify({ message: lastMsg, shipment_context: context }) })
+    return request("/api/ai/company/chat", { method: "POST", body: JSON.stringify({ message: lastMsg, context }) })
   },
 }
