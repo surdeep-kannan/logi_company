@@ -24,9 +24,9 @@ export const api = {
   login: (body) => request("/api/company/auth/login",  { method: "POST", body: JSON.stringify(body) }),
 
   // Shipments
-  getShipments: (params = {}) => request("/api/shipments" + (Object.keys(params).length ? "?" + new URLSearchParams(params) : "")),
-  updateShipment: (id, body)  => request(`/api/shipments/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  getStats: ()                => request("/api/shipments/stats/summary"),
+  getShipments: (params = {}) => request("/api/shipments/company/all" + (Object.keys(params).length ? "?" + new URLSearchParams(params) : "")),
+  updateShipment: (id, body)  => request(`/api/shipments/company/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  getStats: ()                => request("/api/shipments/company/stats"),
 
   // Cancellations (company schema)
   getCancellations: ()        => request("/api/cancellations"),
