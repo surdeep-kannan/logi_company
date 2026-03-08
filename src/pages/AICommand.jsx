@@ -45,7 +45,27 @@ export default function AICommand() {
       api.getShipments().catch(() => []),
       api.getCancellations().catch(() => []),
     ]).then(([shipments, cancellations]) => {
-      setContext({ shipments: Array.isArray(shipments) ? shipments : shipments?.shipments || [], cancellations: Array.isArray(cancellations) ? cancellations : cancellations?.cancellations || [] })
+      const ships = Array.isArray(shipments) ? shipments : shipments?.shipments || []
+      const cans  = Array.isArray(cancellations) ? cancellations : cancellations?.cancellations || []
+      setContext({
+        shipments: ships.map(s => ({
+          uuid:            s.id,
+          id:              s.tracking_number || s.id,
+          tracking_number: s.tracking_number,
+          status:          s.status,
+          route:           `${s.origin_city} → ${s.dest_city}`,
+          customer:        s.profiles?.full_name || s.profiles?.email || "Unknown",
+          carrier:         s.carrier,
+          eta:             s.eta,
+        })),
+        cancellations: cans.map(c => ({
+          id:              c.id,
+          tracking_number: c.tracking_number,
+          status:          c.status,
+          reason:          c.reason,
+          customer:        c.profiles?.full_name || c.profiles?.email || "Unknown",
+        }))
+      })
     })
   }, [])
 
@@ -63,8 +83,8 @@ export default function AICommand() {
     setLoading(true)
 
     try {
-      const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
-      const res = await api.aiChat(history, context)
+      const history = messages.map(m => ({ role: m.role, content: m.content }))
+      const res = await api.aiChat([...history, userMsg], context)
 
       let parsed = { message: "", action: null }
       try {
@@ -86,18 +106,35 @@ export default function AICommand() {
     setLoading(false)
   }
 
+  function resolveShipmentId(trackingOrId) {
+    if (!context?.shipments) return trackingOrId
+    const match = context.shipments.find(s => s.tracking_number === trackingOrId || s.uuid === trackingOrId || s.id === trackingOrId)
+    return match?.uuid || trackingOrId
+  }
+
+  function resolveCancellationId(idOrTracking) {
+    if (!context?.cancellations) return idOrTracking
+    const match = context.cancellations.find(c => c.id === idOrTracking || c.tracking_number === idOrTracking)
+    return match?.id || idOrTracking
+  }
+
   async function executeAction(action) {
     try {
       if (action.type === "status_update" && action.shipment_id) {
-        await api.updateShipment(action.shipment_id, { status: action.status })
+        const uuid = resolveShipmentId(action.shipment_id)
+        await api.updateShipment(uuid, { status: action.status })
       } else if (action.type === "approve_cancel" && action.cancellation_id) {
-        await api.approveCancellation(action.cancellation_id)
+        const uuid = resolveCancellationId(action.cancellation_id)
+        await api.approveCancellation(uuid)
       } else if (action.type === "reject_cancel" && action.cancellation_id) {
-        await api.rejectCancellation(action.cancellation_id, action.reason || "Rejected by AI")
+        const uuid = resolveCancellationId(action.cancellation_id)
+        await api.rejectCancellation(uuid, action.reason || "Rejected by AI")
       } else if (action.type === "assign_carrier" && action.shipment_id) {
-        await api.updateShipment(action.shipment_id, { carrier_name: action.carrier })
+        const uuid = resolveShipmentId(action.shipment_id)
+        await api.updateShipment(uuid, { carrier: action.carrier })
       } else if (action.type === "flag_delay" && action.shipment_id) {
-        await api.updateShipment(action.shipment_id, { status: "delayed" })
+        const uuid = resolveShipmentId(action.shipment_id)
+        await api.updateShipment(uuid, { status: "delayed" })
       }
     } catch (e) { console.error("Action failed:", e) }
   }
