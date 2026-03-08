@@ -63,8 +63,8 @@ export default function AICommand() {
     setLoading(true)
 
     try {
-      const history = messages.map(m => ({ role: m.role, content: m.content }))
-      const res = await api.aiChat([...history, userMsg], context)
+      const history = [...messages, userMsg].map(m => ({ role: m.role, content: m.content }))
+      const res = await api.aiChat(history, context)
 
       let parsed = { message: "", action: null }
       try {

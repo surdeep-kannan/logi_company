@@ -39,7 +39,7 @@ export default function Dashboard() {
   useEffect(() => {
     Promise.all([
       api.getStats().catch(() => null),
-      api.getShipments("?limit=8&status=in_transit").catch(() => []),
+      api.getShipments({ limit: 8, status: "in_transit" }).catch(() => []),
     ]).then(([s, sh]) => {
       setStats(s)
       setShipments(Array.isArray(sh) ? sh : sh?.shipments || [])

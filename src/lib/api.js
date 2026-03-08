@@ -24,7 +24,7 @@ export const api = {
   login: (body) => request("/api/company/auth/login",  { method: "POST", body: JSON.stringify(body) }),
 
   // Shipments
-  getShipments: (params = "") => request(`/api/shipments${params}`),
+  getShipments: (params = {}) => request("/api/shipments" + (Object.keys(params).length ? "?" + new URLSearchParams(params) : "")),
   updateShipment: (id, body)  => request(`/api/shipments/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   getStats: ()                => request("/api/shipments/stats/summary"),
 
@@ -34,5 +34,8 @@ export const api = {
   rejectCancellation: (id, reason) => request(`/api/cancellations/${id}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
 
   // AI
-  aiChat: (messages, context) => request("/api/ai/chat", { method: "POST", body: JSON.stringify({ messages, context }) }),
+  aiChat: (messages, context) => {
+    const lastMsg = messages[messages.length - 1]?.content || ""
+    return request("/api/ai/chat", { method: "POST", body: JSON.stringify({ message: lastMsg, shipment_context: context }) })
+  },
 }
