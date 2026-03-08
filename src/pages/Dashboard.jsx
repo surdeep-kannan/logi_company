@@ -93,14 +93,14 @@ export default function Dashboard() {
                 <tr key={s.id} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "transparent" : "rgba(0,0,0,0.08)" }}>
                   <td style={{ padding: "12px 16px", color: C.accent, fontWeight: 600 }}>{s.tracking_number || s.id?.slice(0,8)}</td>
                   <td style={{ padding: "12px 16px", color: C.textMid }}>{s.origin_city || "—"}</td>
-                  <td style={{ padding: "12px 16px", color: C.textMid }}>{s.destination_city || "—"}</td>
-                  <td style={{ padding: "12px 16px", color: C.textMid }}>{s.carrier_name || "—"}</td>
+                  <td style={{ padding: "12px 16px", color: C.textMid }}>{s.dest_city || "—"}</td>
+                  <td style={{ padding: "12px 16px", color: C.textMid }}>{s.carrier || "—"}</td>
                   <td style={{ padding: "12px 16px" }}>
                     <span style={{ padding: "3px 9px", borderRadius: 99, fontSize: 11, fontWeight: 700, background: `${STATUS_COLOR[s.status] || C.textLow}18`, color: STATUS_COLOR[s.status] || C.textLow, border: `1px solid ${STATUS_COLOR[s.status] || C.textLow}35` }}>
                       {s.status?.replace("_", " ").toUpperCase() || "—"}
                     </span>
                   </td>
-                  <td style={{ padding: "12px 16px", color: C.textMid }}>{s.estimated_delivery ? new Date(s.estimated_delivery).toLocaleDateString("en-IN") : "—"}</td>
+                  <td style={{ padding: "12px 16px", color: C.textMid }}>{s.eta ? new Date(s.eta).toLocaleDateString("en-IN") : "—"}</td>
                 </tr>
               ))}
             </tbody>
