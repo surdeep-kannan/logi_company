@@ -1,163 +1,44 @@
-import { useState, useEffect, useRef } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { api } from "../lib/api"
+import { useRef } from "react"
+import { useChatContext } from "./DashboardLayout"
 
 const C = {
-  bg: "#393185", surface: "#453D9A", surfaceMid: "#4F47AA",
-  border: "rgba(255,255,255,0.1)", borderUp: "rgba(255,255,255,0.18)",
-  accent: "#00B4D8", accentDim: "rgba(0,180,216,0.15)", accentGlow: "rgba(0,180,216,0.25)",
+  bg: "#393185", surface: "#453D9A",
+  border: "rgba(255,255,255,0.1)", accent: "#00B4D8",
   grad: "linear-gradient(135deg, #0077B6 0%, #00B4D8 100%)",
   success: "#22C55E", warning: "#F59E0B", error: "#EF4444",
   textHi: "rgba(255,255,255,0.95)", textMid: "rgba(255,255,255,0.6)", textLow: "rgba(255,255,255,0.35)",
 }
 
 const SUGGESTIONS = [
-  "Show all delayed shipments",
-  "Approve all pending cancellations",
-  "Which carrier has the most delays?",
-  "Flag shipments with ETA past today",
-  "Generate a status summary",
-  "List shipments needing attention",
+  "approve all cancellations",
+  "status summary",
+  "list delayed shipments",
+  "which carrier has most delays?",
+  "flag all pending as in transit",
 ]
 
-const ACTION_COLORS = {
-  status_update:   C.accent,
-  approve_cancel:  C.success,
-  reject_cancel:   C.error,
-  flag_delay:      C.warning,
-  assign_carrier:  "#A78BFA",
-  send_alert:      C.warning,
-  none:            C.textLow,
-}
-
 export default function AICommand() {
-  const [messages, setMessages]   = useState([
-    { role: "assistant", content: "Hello! I'm your LoRRI operations AI. I have full context of all shipments and cancellation requests. Ask me anything or give me a command.", action: null }
-  ])
-  const [input, setInput]         = useState("")
-  const [loading, setLoading]     = useState(false)
-  const [context, setContext]     = useState(null)
-  const bottomRef                 = useRef(null)
-
-  useEffect(() => {
-    // Load live context
-    Promise.all([
-      api.getShipments().catch(() => []),
-      api.getCancellations().catch(() => []),
-    ]).then(([shipments, cancellations]) => {
-      const ships = Array.isArray(shipments) ? shipments : shipments?.shipments || []
-      const cans  = Array.isArray(cancellations) ? cancellations : cancellations?.cancellations || []
-      setContext({
-        shipments: ships.map(s => ({
-          uuid:            s.id,
-          id:              s.tracking_number || s.id,
-          tracking_number: s.tracking_number,
-          status:          s.status,
-          route:           `${s.origin_city} → ${s.dest_city}`,
-          customer:        s.profiles?.full_name || s.profiles?.email || "Unknown",
-          carrier:         s.carrier,
-          eta:             s.eta,
-        })),
-        cancellations: cans.map(c => ({
-          id:              c.id,
-          tracking_number: c.tracking_number,
-          status:          c.status,
-          reason:          c.reason,
-          customer:        c.profiles?.full_name || c.profiles?.email || "Unknown",
-        }))
-      })
-    })
-  }, [])
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
-
-  async function send(text) {
-    const msg = text || input.trim()
-    if (!msg || loading) return
-    setInput("")
-
-    const userMsg = { role: "user", content: msg }
-    setMessages(prev => [...prev, userMsg])
-    setLoading(true)
-
-    try {
-      const history = messages.map(m => ({ role: m.role, content: m.content }))
-      const res = await api.aiChat([...history, userMsg], context)
-
-      let parsed = { message: "", action: null }
-      try {
-        const raw = typeof res === "string" ? res : res.reply || res.message || JSON.stringify(res)
-        const jsonMatch = raw.match(/\{[\s\S]*\}/)
-        if (jsonMatch) parsed = JSON.parse(jsonMatch[0])
-        else parsed.message = raw
-      } catch { parsed.message = typeof res === "string" ? res : res.reply || "Done." }
-
-      // Execute action if present
-      if (parsed.action?.type && parsed.action.type !== "none") {
-        await executeAction(parsed.action)
-      }
-
-      setMessages(prev => [...prev, { role: "assistant", content: parsed.message || "Done.", action: parsed.action }])
-    } catch (e) {
-      setMessages(prev => [...prev, { role: "assistant", content: `Error: ${e.message}`, action: null }])
-    }
-    setLoading(false)
-  }
-
-  function resolveShipmentId(trackingOrId) {
-    if (!context?.shipments) return trackingOrId
-    const match = context.shipments.find(s => s.tracking_number === trackingOrId || s.uuid === trackingOrId || s.id === trackingOrId)
-    return match?.uuid || trackingOrId
-  }
-
-  function resolveCancellationId(idOrTracking) {
-    if (!context?.cancellations) return idOrTracking
-    const match = context.cancellations.find(c => c.id === idOrTracking || c.tracking_number === idOrTracking)
-    return match?.id || idOrTracking
-  }
-
-  async function executeAction(action) {
-    try {
-      if (action.type === "status_update" && action.shipment_id) {
-        const uuid = resolveShipmentId(action.shipment_id)
-        await api.updateShipment(uuid, { status: action.status })
-      } else if (action.type === "approve_cancel" && action.cancellation_id) {
-        const uuid = resolveCancellationId(action.cancellation_id)
-        await api.approveCancellation(uuid)
-      } else if (action.type === "reject_cancel" && action.cancellation_id) {
-        const uuid = resolveCancellationId(action.cancellation_id)
-        await api.rejectCancellation(uuid, action.reason || "Rejected by AI")
-      } else if (action.type === "assign_carrier" && action.shipment_id) {
-        const uuid = resolveShipmentId(action.shipment_id)
-        await api.updateShipment(uuid, { carrier: action.carrier })
-      } else if (action.type === "flag_delay" && action.shipment_id) {
-        const uuid = resolveShipmentId(action.shipment_id)
-        await api.updateShipment(uuid, { status: "delayed" })
-      }
-    } catch (e) { console.error("Action failed:", e) }
-  }
+  const { messages, input, setInput, loading, send, context } = useChatContext()
+  const bottomRef = useRef(null)
 
   return (
-    <div style={{ padding: "28px 32px", height: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ padding: "28px 32px", height: "calc(100vh - 0px)", display: "flex", flexDirection: "column" }}>
       {/* Header */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} style={{ marginBottom: 20, flexShrink: 0 }}>
+      <div style={{ marginBottom: 16, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4 }}>
           <h1 style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em" }}>AI Command Center</h1>
-          <span style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 99, background: C.accentDim, border: `1px solid rgba(0,180,216,0.3)`, color: C.accent, fontSize: 11, fontWeight: 700 }}>
-            <span style={{ width: 5, height: 5, borderRadius: "50%", background: C.accent, display: "block", animation: "pulse 1.5s infinite" }} />
-            {context ? `${context.shipments.length} shipments · ${context.cancellations.length} cancellations loaded` : "Loading context..."}
+          <span style={{ padding: "3px 10px", borderRadius: 99, background: "rgba(0,180,216,0.15)", border: "1px solid rgba(0,180,216,0.3)", color: C.accent, fontSize: 11, fontWeight: 700 }}>
+            {context ? `${context.shipments.length} shipments · ${context.cancellations.length} cancellations` : "Loading..."}
           </span>
         </div>
-        <p style={{ color: C.textMid, fontSize: 13 }}>Give commands in plain English — the AI has full access to live operations data</p>
-      </motion.div>
+        <p style={{ color: C.textMid, fontSize: 13 }}>Direct commands execute instantly. Questions go to AI.</p>
+      </div>
 
-      {/* Suggestions */}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, flexShrink: 0 }}>
+      {/* Quick suggestions */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, flexShrink: 0 }}>
         {SUGGESTIONS.map(s => (
-          <button key={s} onClick={() => send(s)}
-            style={{ padding: "5px 13px", borderRadius: 999, background: "rgba(255,255,255,0.06)", border: `1px solid ${C.border}`, color: C.textMid, fontSize: 12, fontWeight: 500, transition: "all 0.15s" }}
+          <button key={s} onClick={() => setInput(s)}
+            style={{ padding: "5px 13px", borderRadius: 999, background: "rgba(255,255,255,0.06)", border: `1px solid ${C.border}`, color: C.textMid, fontSize: 12, cursor: "pointer", transition: "all 0.15s" }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.color = C.accent }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.color = C.textMid }}>
             {s}
@@ -165,36 +46,27 @@ export default function AICommand() {
         ))}
       </div>
 
-      {/* Chat messages */}
-      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14, paddingRight: 4, marginBottom: 16 }}>
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, marginBottom: 14, paddingRight: 4 }}>
         {messages.map((m, i) => (
-          <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-            style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
-            <div style={{ maxWidth: "75%" }}>
-              <div style={{
-                padding: "12px 16px", borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                background: m.role === "user" ? C.grad : C.surface,
-                border: `1px solid ${m.role === "user" ? "transparent" : C.border}`,
-                color: C.textHi, fontSize: 14, lineHeight: 1.65,
-                boxShadow: m.role === "user" ? `0 4px 16px ${C.accentGlow}` : "none",
-              }}>
-                {m.content}
-              </div>
-              {m.action && m.action.type && m.action.type !== "none" && (
-                <div style={{ marginTop: 6, display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 99, background: `${ACTION_COLORS[m.action.type] || C.textLow}18`, border: `1px solid ${ACTION_COLORS[m.action.type] || C.textLow}35`, color: ACTION_COLORS[m.action.type] || C.textLow, fontSize: 11, fontWeight: 700 }}>
-                  Action: {m.action.type.replace(/_/g, " ").toUpperCase()}
-                </div>
-              )}
+          <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+            <div style={{
+              maxWidth: "72%", padding: "11px 16px",
+              borderRadius: m.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+              background: m.role === "user" ? C.grad : C.surface,
+              border: m.role === "user" ? "none" : `1px solid ${m.color ? m.color + "30" : C.border}`,
+              color: m.role === "user" ? "#fff" : (m.color || C.textHi),
+              fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word",
+            }}>
+              {m.content}
             </div>
-          </motion.div>
+          </div>
         ))}
         {loading && (
-          <div style={{ display: "flex", justifyContent: "flex-start" }}>
-            <div style={{ padding: "12px 18px", borderRadius: "14px 14px 14px 4px", background: C.surface, border: `1px solid ${C.border}` }}>
-              <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-                {[0,1,2].map(j => (
-                  <div key={j} style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent, animation: `pulse 1.2s ease-in-out ${j * 0.2}s infinite` }} />
-                ))}
+          <div style={{ display: "flex" }}>
+            <div style={{ padding: "11px 16px", borderRadius: "16px 16px 16px 4px", background: C.surface, border: `1px solid ${C.border}` }}>
+              <div style={{ display: "flex", gap: 5 }}>
+                {[0,1,2].map(j => <div key={j} style={{ width: 7, height: 7, borderRadius: "50%", background: C.accent, animation: `pulse 1.2s ${j*0.2}s infinite` }} />)}
               </div>
             </div>
           </div>
@@ -208,17 +80,16 @@ export default function AICommand() {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === "Enter" && !e.shiftKey && send()}
-          placeholder="Type a command or question..."
+          placeholder="SHP-XXXX next stage  ·  approve all cancellations  ·  status summary..."
           disabled={loading}
-          style={{ flex: 1, padding: "12px 16px", borderRadius: 12, background: C.surface, border: `1px solid ${C.border}`, color: C.textHi, fontSize: 14, outline: "none", transition: "border-color 0.2s" }}
+          style={{ flex: 1, padding: "13px 18px", borderRadius: 13, background: C.surface, border: `1px solid ${C.border}`, color: C.textHi, fontSize: 14, outline: "none", transition: "border-color 0.2s" }}
           onFocus={e => e.target.style.borderColor = C.accent}
           onBlur={e => e.target.style.borderColor = C.border}
         />
-        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
-          onClick={() => send()} disabled={loading || !input.trim()}
-          style={{ padding: "12px 24px", borderRadius: 12, background: input.trim() ? C.grad : "rgba(0,180,216,0.2)", color: "#fff", fontWeight: 700, fontSize: 14, border: "none", boxShadow: input.trim() ? `0 4px 16px ${C.accentGlow}` : "none", transition: "all 0.2s" }}>
+        <button onClick={send} disabled={loading || !input.trim()}
+          style={{ padding: "13px 28px", borderRadius: 13, background: input.trim() ? C.grad : "rgba(0,180,216,0.2)", color: "#fff", fontWeight: 700, fontSize: 15, border: "none", cursor: input.trim() ? "pointer" : "default", transition: "all 0.2s" }}>
           Send
-        </motion.button>
+        </button>
       </div>
     </div>
   )
